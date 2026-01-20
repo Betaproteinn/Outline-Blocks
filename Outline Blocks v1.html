@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Outline Blocks v1</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        body { background-color: #f9fafb; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; overflow: hidden; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .block-transition { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+        textarea:focus { outline: none; }
+        .sidebar-item-active { background-color: #e2e8f0; color: #1e293b; }
+        .modal-enter { opacity: 0; transform: scale(0.95); }
+        .modal-enter-active { opacity: 1; transform: scale(1); transition: opacity 200ms, transform 200ms; }
+        /* Diff Styles */
+        .diff-old { text-decoration: line-through; color: #ef4444; background-color: #fef2f2; padding: 2px 4px; border-radius: 4px; }
+        .diff-new { font-weight: bold; color: #16a34a; background-color: #f0fdf4; padding: 2px 4px; border-radius: 4px; }
+        .diff-filler { color: #9ca3af; font-style: italic; background-color: #f3f4f6; padding: 2px 6px; border-radius: 4px; border: 1px dashed #d1d5db; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+        // ==========================================
+        // 1. CONSTANTS & UTILS (常量与工具函数)
+        // ==========================================
+        
+        const GAP_THRESHOLD = 20;
+        const generateId = () => Date.now().toString() + Math.random().toString(36).substr(2, 5);
+
+        const TRANSLATIONS = {
+            zh: {
+                appTitle: "小说大纲积木构思板", newOutline: "新建", import: "导入", recent: "最近构思", untitled: "未命名大纲", newIdea: "新构思",
+                pin: "固定大纲", unpin: "取消固定", export: "导出", delete: "删除", deleteConfirm: "确定要删除这个大纲吗？",
+                copy: "复制文本", copySuccess: "内容已复制到剪贴板！", nodes: "个节点",
+                addBlock: "添加新段落", addBlockBottom: "添加新段落 (底部)", batchAdd: "批量添加",
+                batchModalTitle: "智能批量导入 (强制对齐)", batchModalDesc: "在此粘贴文本。系统将解析行号并强制对齐到对应位置。乱序文本也会被自动归位，中间缺失的行将自动填充。",
+                batchModalPlaceholder: "例如：\n8 结局（直接定位到第8行）\n1 开头（定位到第1行）\n3 中间点（定位到第3行，第2行将自动补空）",
+                cancel: "取消", analyze: "分析内容", confirmImport: "确认合并", backToEdit: "返回编辑",
+                inputPlaceholder: "输入灵感 (Alt/Cmd + Enter 新建)", settings: "设置", language: "语言 / Language", switchLangLabel: "English",
+                emptyImport: "空导入", leastOne: "至少保留一个大纲",
+                diffConflict: "冲突", diffNew: "新增", diffFiller: "自动填充", diffOriginal: "原内容", diffIncoming: "新内容",
+                diffAction: "操作", diffKeep: "保留原样", diffOverwrite: "覆盖", diffAppend: "追加",
+                warningTitle: "⚠️ 自动填充警告", warningDesc: "检测到行号跨度较大（最大行号 {1}），此操作将自动生成 {0} 个空白积木以填充空缺。",
+                warningQuestion: "是否继续生成？还是作为普通文本追加到末尾（忽略行号）？", actionFill: "是的，生成空白块", actionAsText: "不，作为普通文本追加"
+            },
+            en: {
+                appTitle: "Novel Outliner", newOutline: "New", import: "Import", recent: "Recent", untitled: "Untitled", newIdea: "New Idea",
+                pin: "Pin Outline", unpin: "Unpin Outline", export: "Export", delete: "Delete", deleteConfirm: "Are you sure you want to delete this outline?",
+                copy: "Copy Text", copySuccess: "Copied to clipboard!", nodes: "nodes",
+                addBlock: "Add Block", addBlockBottom: "Add Block (Bottom)", batchAdd: "Batch Add",
+                batchModalTitle: "Smart Batch Import (Forced Alignment)", batchModalDesc: "Paste text here. The system maps numbered lines to exact positions. Unordered lines are sorted, and gaps are auto-filled.",
+                batchModalPlaceholder: "e.g.:\n8 Ending (Mapped to Line 8)\n1 Start (Mapped to Line 1)\n3 Midpoint (Line 2 auto-filled)",
+                cancel: "Cancel", analyze: "Analyze", confirmImport: "Confirm Merge", backToEdit: "Back to Edit",
+                inputPlaceholder: "Enter idea (Alt/Cmd + Enter for new)", settings: "Settings", language: "Language / 语言", switchLangLabel: "中文",
+                emptyImport: "Empty Import", leastOne: "Keep at least one outline",
+                diffConflict: "Conflict", diffNew: "New", diffFiller: "Auto-fill", diffOriginal: "Original", diffIncoming: "Incoming",
+                diffAction: "Action", diffKeep: "Keep Old", diffOverwrite: "Overwrite", diffAppend: "Append",
+                warningTitle: "⚠️ Large Gap Warning", warningDesc: "Large gap detected (Max line {1}). This will automatically generate {0} empty blocks.",
+                warningQuestion: "Proceed with filling? Or append as plain text (ignore numbers)?", actionFill: "Yes, Fill Gaps", actionAsText: "No, Append as Text"
+            }
+        };
+
+        /** 解析单行文本 */
+        const parseLine = (line) => {
+            if (!line.trim()) return null;
+            let depth = 0;
+            let content = line;
+            let explicitIndex = -1; 
+            let isNumbered = false;
+
+            const matchWithNumber = line.match(/^\s*(\d+)[.、\s]+\s*(\t*)(.*)$/);
+            if (matchWithNumber) {
+                const num = parseInt(matchWithNumber[1], 10);
+                explicitIndex = num - 1; 
+                depth = matchWithNumber[2].length;
+                content = matchWithNumber[3];
+                isNumbered = true;
+            } else {
+                const matchIndent = line.match(/^(\t+)(.*)$/);
+                if (matchIndent) {
+                    depth = matchIndent[1].length;
+                    content = matchIndent[2];
+                } else {
+                    content = line.trim();
+                }
+            }
+            return { content, depth: Math.min(depth, 8), explicitIndex, isNumbered };
+        };
+
+        /** 将文本解析为映射表 (Index -> Content) */
+        const parseTextToMap = (inputLines, currentLength) => {
+            const map = new Map();
+            let cursor = currentLength - 1; 
+
+            inputLines.forEach(line => {
+                const parsed = parseLine(line);
+                if (!parsed) return;
+                if (parsed.isNumbered) { cursor = parsed.explicitIndex; } else { cursor++; }
+                map.set(cursor, { content: parsed.content, depth: parsed.depth });
+            });
+            return map;
+        };
+
+        /** 简单解析为列表 (用于文件导入) */
+        const parseTextToList = (inputLines) => {
+            return inputLines.map(line => {
+                const parsed = parseLine(line);
+                if (!parsed) return null;
+                return { id: generateId(), content: parsed.content, depth: parsed.depth };
+            }).filter(Boolean);
+        };
+
+        // ==========================================
+        // 2. CUSTOM HOOKS (自定义逻辑钩子)
+        // ==========================================
+
+        const useLanguage = () => {
+            const [lang, setLang] = useState(() => localStorage.getItem('novel-app-language') || 'zh');
+            useEffect(() => { localStorage.setItem('novel-app-language', lang); }, [lang]);
+            const toggle = () => setLang(prev => prev === 'zh' ? 'en' : 'zh');
+            return { language: lang, t: TRANSLATIONS[lang], toggleLanguage: toggle };
+        };
+
+        const useOutlines = (t) => {
+            const [state, setState] = useState(() => {
+                const saved = localStorage.getItem('novel-app-state');
+                if (saved) { try { return JSON.parse(saved); } catch(e) {} }
+                const oldData = localStorage.getItem('novel-outline-data');
+                let initial = [];
+                if (oldData) { try { initial.push({ id: 'default-old', title: '未命名大纲 (已恢复)', isPinned: false, lastModified: Date.now(), data: JSON.parse(oldData) }); } catch(e) {} }
+                if (initial.length === 0) { initial.push({ id: 'init-1', title: t.newIdea, isPinned: false, lastModified: Date.now(), data: [{ id: '1', content: '', depth: 0 }] }); }
+                return { activeId: initial[0].id, outlines: initial };
+            });
+
+            useEffect(() => { localStorage.setItem('novel-app-state', JSON.stringify(state)); }, [state]);
+
+            const activeOutline = state.outlines.find(o => o.id === state.activeId) || state.outlines[0];
+            const sortedOutlines = useMemo(() => [...state.outlines].sort((a, b) => {
+                if (a.isPinned !== b.isPinned) return b.isPinned ? 1 : -1;
+                return b.lastModified - a.lastModified;
+            }), [state.outlines]);
+
+            const createNew = () => {
+                const newId = generateId();
+                const newOutline = { id: newId, title: `${t.newIdea} ${new Date().toLocaleDateString()}`, isPinned: false, lastModified: Date.now(), data: [{ id: '1', content: '', depth: 0 }] };
+                setState(prev => ({ outlines: [newOutline, ...prev.outlines], activeId: newId }));
+            };
+
+            const importOutline = (title, data) => {
+                const newId = generateId();
+                const newOutline = { id: newId, title: title || `${t.import} ${new Date().toLocaleDateString()}`, isPinned: false, lastModified: Date.now(), data };
+                setState(prev => ({ outlines: [newOutline, ...prev.outlines], activeId: newId }));
+            };
+
+            const remove = (id) => {
+                if (state.outlines.length <= 1) { alert(t.leastOne); return; }
+                if (confirm(t.deleteConfirm)) {
+                    setState(prev => {
+                        const remaining = prev.outlines.filter(o => o.id !== id);
+                        return { outlines: remaining, activeId: prev.activeId === id ? remaining[0].id : prev.activeId };
+                    });
+                }
+            };
+
+            const updateActiveItems = (newItemsOrFn) => {
+                setState(prev => {
+                    const current = prev.outlines.find(o => o.id === prev.activeId);
+                    const newItems = typeof newItemsOrFn === 'function' ? newItemsOrFn(current.data) : newItemsOrFn;
+                    return { ...prev, outlines: prev.outlines.map(o => o.id === prev.activeId ? { ...o, data: newItems, lastModified: Date.now() } : o) };
+                });
+            };
+
+            const updateMeta = (id, fields) => {
+                setState(prev => ({ ...prev, outlines: prev.outlines.map(o => o.id === id ? { ...o, ...fields } : o) }));
+            };
+
+            const switchOutline = (id) => setState(prev => ({ ...prev, activeId: id }));
+
+            return { activeOutline, sortedOutlines, activeId: state.activeId, createNew, importOutline, remove, updateActiveItems, updateMeta, switchOutline };
+        };
+
+        // ==========================================
+        // 3. ICONS (SVG 组件)
+        // ==========================================
+        const Icons = {
+            Menu: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>,
+            Pin: ({ filled }) => <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>,
+            Trash: () => <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>,
+            Plus: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+            Sidebar: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>,
+            DragHandle: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>,
+            IndentRight: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 8 7 12 3 16"/><line x1="21" y1="12" x2="7" y2="12"/><line x1="21" y1="6" x2="11" y2="6"/><line x1="21" y1="18" x2="11" y2="18"/></svg>,
+            IndentLeft: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="11 18 7 14 11 10"/><line x1="21" y1="14" x2="7" y2="14"/><line x1="21" y1="8" x2="11" y2="8"/><line x1="21" y1="20" x2="11" y2="20"/></svg>,
+            Copy: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>,
+            Paste: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>,
+            Upload: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+            Download: () => <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+            Settings: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+            ArrowRight: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
+            Warning: () => <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-yellow-500 mb-2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        };
+
+        // ==========================================
+        // 4. COMPONENTS (UI 组件)
+        // ==========================================
+
+        function useOnClickOutside(ref, handler) {
+            useEffect(() => {
+                const listener = (event) => {
+                    if (!ref.current || ref.current.contains(event.target)) return;
+                    handler(event);
+                };
+                document.addEventListener("mousedown", listener);
+                document.addEventListener("touchstart", listener);
+                return () => { document.removeEventListener("mousedown", listener); document.removeEventListener("touchstart", listener); };
+            }, [ref, handler]);
+        }
+
+        const BatchModal = ({ isOpen, onClose, onConfirmMerge, t, currentItems }) => {
+            const [text, setText] = useState('');
+            const [mode, setMode] = useState('input');
+            const [analysis, setAnalysis] = useState([]);
+            const [warningData, setWarningData] = useState({ fillerCount: 0, maxLine: 0 });
+
+            useEffect(() => {
+                if (isOpen) { setText(''); setMode('input'); setAnalysis([]); setWarningData({ fillerCount: 0, maxLine: 0 }); }
+            }, [isOpen]);
+
+            const analyzeText = (forceTextMode = false) => {
+                if (!text.trim()) return;
+                const lines = text.split('\n');
+
+                if (forceTextMode) {
+                    const changes = lines.map((line, idx) => {
+                        if (!line.trim()) return null;
+                        const parsed = parseLine(line);
+                        return {
+                            id: generateId(), type: 'new', explicitIndex: currentItems.length + idx,
+                            depth: parsed.depth, newContent: parsed.content, oldContent: '', shouldOverwrite: false
+                        };
+                    }).filter(Boolean);
+                    setAnalysis(changes); setMode('review'); return;
+                }
+
+                const importMap = parseTextToMap(lines, currentItems.length);
+                let maxImportIndex = -1;
+                for (let k of importMap.keys()) { if (k > maxImportIndex) maxImportIndex = k; }
+                const endBoundary = Math.max(currentItems.length - 1, maxImportIndex);
+
+                let fillerCount = 0;
+                for (let i = 0; i <= maxImportIndex; i++) {
+                    if (i >= currentItems.length && !importMap.has(i)) fillerCount++;
+                }
+                if (fillerCount > GAP_THRESHOLD) {
+                    setWarningData({ fillerCount, maxLine: maxImportIndex + 1 });
+                    setMode('warning'); return;
+                }
+
+                const changes = [];
+                for (let i = 0; i <= endBoundary; i++) {
+                    const incoming = importMap.get(i);
+                    const existing = currentItems[i];
+
+                    if (incoming) {
+                        const type = existing ? 'conflict' : 'new';
+                        changes.push({
+                            id: i, type, explicitIndex: i, depth: incoming.depth,
+                            newContent: incoming.content, oldContent: existing ? existing.content : '',
+                            shouldOverwrite: type === 'conflict'
+                        });
+                    } else if (!existing && i < maxImportIndex) {
+                        changes.push({
+                            id: i, type: 'filler', explicitIndex: i, depth: 0,
+                            newContent: "(Empty Block)", oldContent: '', shouldOverwrite: false
+                        });
+                    }
+                }
+                setAnalysis(changes); setMode('review');
+            };
+
+            const toggleOverwrite = (changeId) => {
+                setAnalysis(prev => prev.map(c => c.id === changeId ? { ...c, shouldOverwrite: !c.shouldOverwrite } : c));
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col max-h-[85vh] animate-fade-in-up">
+                        <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
+                            <h3 className="font-bold text-gray-700">
+                                {mode === 'input' ? t.batchModalTitle : (mode === 'warning' ? t.warningTitle : t.confirmImport)}
+                            </h3>
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                        </div>
+
+                        {mode === 'input' && (
+                            <div className="p-4 flex-1 flex flex-col min-h-[300px]">
+                                <p className="text-sm text-gray-500 mb-2">{t.batchModalDesc}</p>
+                                <textarea value={text} onChange={(e) => setText(e.target.value)} className="w-full flex-1 border border-gray-300 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono" placeholder={t.batchModalPlaceholder} />
+                            </div>
+                        )}
+
+                        {mode === 'warning' && (
+                            <div className="p-8 flex flex-col items-center justify-center text-center">
+                                <Icons.Warning />
+                                <h4 className="text-xl font-bold text-gray-800 mb-2">{t.warningTitle}</h4>
+                                <p className="text-gray-600 mb-6 max-w-md">
+                                    {t.warningDesc.replace('{0}', warningData.fillerCount).replace('{1}', warningData.maxLine)}
+                                    <br/><br/>{t.warningQuestion}
+                                </p>
+                                <div className="flex gap-4">
+                                    <button onClick={() => analyzeText(true)} className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium">{t.actionAsText}</button>
+                                    <button onClick={() => { 
+                                        const lines = text.split('\n');
+                                        const importMap = parseTextToMap(lines, currentItems.length);
+                                        let maxImportIndex = -1;
+                                        for (let k of importMap.keys()) if (k > maxImportIndex) maxImportIndex = k;
+                                        const endBoundary = Math.max(currentItems.length - 1, maxImportIndex);
+                                        const changes = [];
+                                        for (let i = 0; i <= endBoundary; i++) {
+                                            const incoming = importMap.get(i);
+                                            const existing = currentItems[i];
+                                            if (incoming) changes.push({ id: i, type: existing ? 'conflict' : 'new', explicitIndex: i, depth: incoming.depth, newContent: incoming.content, oldContent: existing ? existing.content : '', shouldOverwrite: existing ? true : false });
+                                            else if (!existing && i < maxImportIndex) changes.push({ id: i, type: 'filler', explicitIndex: i, depth: 0, newContent: "(Empty Block)", oldContent: '', shouldOverwrite: false });
+                                        }
+                                        setAnalysis(changes); setMode('review');
+                                    }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium">{t.actionFill}</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {mode === 'review' && (
+                            <div className="flex-1 overflow-y-auto p-0 bg-gray-50/50">
+                                <table className="w-full text-sm text-left border-collapse">
+                                    <thead className="bg-gray-100 text-gray-600 sticky top-0 shadow-sm z-10">
+                                        <tr>
+                                            <th className="p-3 font-medium w-16 text-center">#</th>
+                                            <th className="p-3 font-medium">{t.diffOriginal}</th>
+                                            <th className="p-3 font-medium w-8"></th>
+                                            <th className="p-3 font-medium">{t.diffIncoming}</th>
+                                            <th className="p-3 font-medium w-24 text-center">{t.diffAction}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100 bg-white">
+                                        {analysis.map((change) => (
+                                            <tr key={change.id} className={change.type === 'conflict' ? 'bg-red-50/30' : (change.type === 'filler' ? 'bg-gray-50' : 'bg-green-50/30')}>
+                                                <td className="p-3 text-center text-gray-400 font-mono">{change.explicitIndex + 1}</td>
+                                                <td className="p-3 text-gray-500 truncate max-w-[150px]">
+                                                    {change.type === 'conflict' ? <span className="diff-old">{change.oldContent || '(empty)'}</span> : <span className="text-gray-300">-</span>}
+                                                </td>
+                                                <td className="p-3 text-gray-400 text-center"><Icons.ArrowRight /></td>
+                                                <td className="p-3 font-medium text-gray-800">
+                                                    <div style={{ paddingLeft: `${change.depth * 10}px` }}>
+                                                        {change.type === 'conflict' ? (
+                                                            <span className={change.shouldOverwrite ? 'diff-new' : 'text-gray-400 decoration-line-through'}>{change.newContent}</span>
+                                                        ) : change.type === 'filler' ? <span className="diff-filler">Auto-fill</span> : <span className="text-green-600">{change.newContent}</span>}
+                                                    </div>
+                                                </td>
+                                                <td className="p-3 text-center">
+                                                    {change.type === 'conflict' ? (
+                                                        <label className="inline-flex items-center cursor-pointer">
+                                                            <input type="checkbox" checked={change.shouldOverwrite} onChange={() => toggleOverwrite(change.id)} className="sr-only peer" />
+                                                            <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
+                                                        </label>
+                                                    ) : change.type === 'filler' ? <span className="text-xs text-gray-400">{t.diffFiller}</span> : <span className="text-xs text-green-500 border border-green-200 bg-green-50 px-2 py-1 rounded">{t.diffAppend}</span>}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+
+                        <div className="p-4 border-t border-gray-100 flex justify-end gap-2 bg-gray-50 rounded-b-xl">
+                            {mode === 'input' ? (
+                                <>
+                                    <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">{t.cancel}</button>
+                                    <button onClick={() => analyzeText(false)} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium">{t.analyze}</button>
+                                </>
+                            ) : mode === 'warning' ? (
+                                <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">{t.cancel}</button>
+                            ) : (
+                                <>
+                                    <button onClick={() => setMode('input')} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">{t.backToEdit}</button>
+                                    <button onClick={() => { onConfirmMerge(analysis); onClose(); }} className="px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg text-sm font-medium">{t.confirmImport}</button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const SidebarItem = ({ outline, isActive, onClick, onRename, onDelete, onPin, onExport, t }) => {
+            const [isMenuOpen, setIsMenuOpen] = useState(false);
+            const [isRenaming, setIsRenaming] = useState(false);
+            const [editTitle, setEditTitle] = useState(outline.title);
+            const menuRef = useRef();
+            const inputRef = useRef();
+
+            useOnClickOutside(menuRef, () => setIsMenuOpen(false));
+
+            useEffect(() => {
+                if (isRenaming && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
+            }, [isRenaming]);
+
+            const handleRenameSubmit = () => {
+                onRename(outline.id, editTitle.trim() || outline.title);
+                setIsRenaming(false);
+            };
+
+            return (
+                <div onClick={onClick} className={`group relative flex items-center gap-2 px-3 py-2.5 mx-2 rounded-lg cursor-pointer text-sm transition-colors ${isActive ? 'bg-white shadow-sm text-gray-800 font-medium' : 'text-gray-600 hover:bg-gray-200/50'}`}>
+                    <div className="text-gray-400 shrink-0">{outline.isPinned ? <Icons.Pin filled={true} /> : <div className="w-3.5 h-3.5 bg-gray-300 rounded-sm opacity-50"></div>}</div>
+                    <div className="flex-1 truncate" onDoubleClick={() => setIsRenaming(true)}>
+                        {isRenaming ? <input ref={inputRef} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} onBlur={handleRenameSubmit} onKeyDown={(e) => e.key === 'Enter' && handleRenameSubmit()} onClick={(e) => e.stopPropagation()} className="w-full bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:outline-none"/> : <span>{outline.title}</span>}
+                    </div>
+                    <div className="relative shrink-0" ref={menuRef}>
+                        <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }} className={`p-1 rounded-md hover:bg-gray-300 text-gray-400 hover:text-gray-600 ${isMenuOpen || isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}><Icons.Menu /></button>
+                        {isMenuOpen && (
+                            <div className="absolute right-0 top-6 w-32 bg-white border border-gray-200 rounded-lg shadow-xl z-50 py-1 overflow-hidden">
+                                <button onClick={(e) => { e.stopPropagation(); onPin(outline.id); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-600 flex items-center gap-2"><Icons.Pin /> {outline.isPinned ? t.unpin : t.pin}</button>
+                                <button onClick={(e) => { e.stopPropagation(); onExport(outline.id); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-green-50 hover:text-green-600 flex items-center gap-2"><Icons.Download /> {t.export}</button>
+                                <div className="h-px bg-gray-100 my-0.5"></div>
+                                <button onClick={(e) => { e.stopPropagation(); onDelete(outline.id); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2"><Icons.Trash /> {t.delete}</button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const Block = ({ item, index, onUpdate, onDelete, onAddAfter, onDragStart, onDragEnter, onDragEnd, onIndent, isDragging, t }) => {
+            const textareaRef = useRef(null);
+            useEffect(() => { if (textareaRef.current) { textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px'; } }, [item.content]);
+
+            const handleKeyDown = (e) => {
+                if (e.key === 'Tab') { e.preventDefault(); onIndent(index, e.shiftKey ? -1 : 1); }
+                if (e.key === 'Backspace' && item.content === '') { e.preventDefault(); onDelete(item.id); }
+                if (e.key === 'Enter' && (e.altKey || e.metaKey)) { e.preventDefault(); onAddAfter(index); }
+            };
+
+            const colors = ['border-blue-400', 'border-teal-400', 'border-purple-400', 'border-pink-400', 'border-orange-400'];
+            const styleProps = { marginLeft: `${item.depth * 2.5}rem`, borderColorClass: item.depth > 0 ? colors[item.depth % colors.length] : 'border-gray-300' };
+
+            return (
+                <div className={`flex items-start group mb-2 block-transition ${isDragging ? 'opacity-40' : 'opacity-100'}`} style={{ marginLeft: styleProps.marginLeft }} onDragEnter={(e) => onDragEnter(e, index)} onDragOver={(e) => e.preventDefault()}>
+                    {item.depth > 0 && <div className="absolute -left-4 top-1/2 w-4 h-px bg-gray-300 pointer-events-none"></div>}
+                    <div className="flex-1 flex items-stretch bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow border border-gray-200 overflow-hidden">
+                        <div className={`w-6 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing bg-gray-50 border-r border-gray-100`} draggable onDragStart={(e) => onDragStart(e, index)} onDragEnd={onDragEnd}><Icons.DragHandle /></div>
+                        <div className={`flex-1 relative border-l-4 ${styleProps.borderColorClass}`}>
+                            <textarea id={`editor-block-${item.id}`} ref={textareaRef} value={item.content} onChange={(e) => onUpdate(item.id, e.target.value)} onKeyDown={handleKeyDown} placeholder={t.inputPlaceholder} className="w-full p-3 resize-none bg-transparent text-gray-700 leading-relaxed min-h-[44px] placeholder-gray-300 text-sm md:text-base" rows={1}/>
+                            <div className="absolute top-1 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 bg-white/90 rounded px-1 shadow-sm border border-gray-100">
+                                <button onClick={() => onIndent(index, -1)} className="p-1 text-gray-400 hover:text-gray-600 disabled:opacity-30" disabled={item.depth === 0}><Icons.IndentLeft /></button>
+                                <button onClick={() => onIndent(index, 1)} className="p-1 text-gray-400 hover:text-gray-600"><Icons.IndentRight /></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 5. MAIN APP (主入口)
+        // ==========================================
+        const App = () => {
+            const { language, t, toggleLanguage } = useLanguage();
+            const { activeOutline, sortedOutlines, activeId, createNew, importOutline, remove, updateActiveItems, updateMeta, switchOutline } = useOutlines(t);
+            
+            const [isSidebarOpen, setSidebarOpen] = useState(true);
+            const [isBatchModalOpen, setBatchModalOpen] = useState(false);
+            const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+            const [draggingItemIndex, setDraggingItemIndex] = useState(null);
+            
+            // Refs
+            const settingsRef = useRef();
+            const importInputRef = useRef(null);
+            const dragItem = useRef();
+            const dragOverItem = useRef();
+            
+            useOnClickOutside(settingsRef, () => setIsSettingsOpen(false));
+
+            // --- Handlers ---
+            const handleImportClick = () => importInputRef.current.click();
+
+            const handleFileImport = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const text = event.target.result;
+                    const lines = text.split('\n');
+                    let title = file.name.replace(/\.(md|txt)$/, '');
+                    let startIndex = 0;
+                    for(let i=0; i<Math.min(5, lines.length); i++) {
+                        const line = lines[i].trim();
+                        if (line.startsWith('[') && line.endsWith(']')) { title = line.slice(1, -1); startIndex = i+1; break; }
+                    }
+                    const newItems = parseTextToList(lines.slice(startIndex));
+                    const data = newItems.length ? newItems : [{id:generateId(), content: t.emptyImport, depth:0}];
+                    importOutline(title, data);
+                };
+                reader.readAsText(file);
+                e.target.value = '';
+            };
+
+            // --- Drag & Drop ---
+            const items = activeOutline.data;
+            const handleDragStart = (e, pos) => { dragItem.current = pos; setDraggingItemIndex(pos); };
+            const handleDragEnter = (e, pos) => { 
+                dragOverItem.current = pos; 
+                const newList = [...items];
+                const draggedItem = newList[dragItem.current];
+                if (dragItem.current !== pos && draggedItem) {
+                    newList.splice(dragItem.current, 1);
+                    newList.splice(pos, 0, draggedItem);
+                    dragItem.current = pos;
+                    updateActiveItems(newList);
+                    setDraggingItemIndex(pos);
+                }
+            };
+            const handleDragEnd = () => { dragItem.current = null; setDraggingItemIndex(null); };
+
+            // --- Block Operations ---
+            const addItem = () => {
+                updateActiveItems([...items, { id: generateId(), content: '', depth: 0 }]);
+                setTimeout(() => document.getElementById('editor-scroller')?.scrollTo({ top: 99999, behavior: 'smooth' }), 100);
+            };
+            const updateItem = (id, txt) => updateActiveItems(prev => prev.map(i => i.id === id ? { ...i, content: txt } : i));
+            const deleteItem = (id) => {
+                if (items.length <= 1 && !items[0].content) return;
+                updateActiveItems(prev => prev.filter(i => i.id !== id));
+            };
+            const addAfter = (idx) => {
+                const newList = [...items];
+                newList.splice(idx + 1, 0, { id: generateId(), content: '', depth: items[idx].depth });
+                updateActiveItems(newList);
+            };
+            const indent = (idx, dir) => {
+                const newList = [...items];
+                newList[idx].depth = Math.max(0, Math.min(8, newList[idx].depth + dir));
+                updateActiveItems(newList);
+            };
+
+            // --- Batch Merge ---
+            const handleMerge = (analysis) => {
+                let maxIdx = items.length - 1;
+                analysis.forEach(c => { if (c.explicitIndex > maxIdx) maxIdx = c.explicitIndex; });
+                
+                const newItems = [...items];
+                while (newItems.length <= maxIdx) newItems.push({ id: generateId(), content: '', depth: 0 });
+
+                analysis.forEach(change => {
+                    const target = change.explicitIndex;
+                    if (change.type === 'conflict' && !change.shouldOverwrite) return;
+                    
+                    const content = change.newContent === "(Empty Block)" ? "" : change.newContent;
+                    newItems[target] = { ...newItems[target], content, depth: change.depth || 0, id: newItems[target].id || generateId() };
+                });
+                updateActiveItems(newItems);
+                setTimeout(() => document.getElementById('editor-scroller')?.scrollTo({ top: 99999, behavior: 'smooth' }), 100);
+            };
+
+            // --- Export ---
+            const handleExport = (id) => {
+                const out = sortedOutlines.find(o => o.id === id);
+                if (!out) return;
+                let txt = `[${out.title}]\n\n` + out.data.map((i, idx) => `${idx + 1} ${'\t'.repeat(i.depth)}${i.content}`).join('\n\n');
+                const blob = new Blob([txt], { type: 'text/markdown' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `${out.title}.md`; a.click();
+            };
+            
+            const handleClipboard = () => {
+                const txt = items.map((i, idx) => `${idx + 1} ${'\t'.repeat(i.depth)}${i.content}`).join('\n');
+                navigator.clipboard.writeText(txt).then(() => alert(t.copySuccess));
+            };
+
+            return (
+                <div className="flex h-screen w-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
+                    <BatchModal isOpen={isBatchModalOpen} onClose={() => setBatchModalOpen(false)} onConfirmMerge={handleMerge} t={t} currentItems={items} />
+                    
+                    <aside className={`${isSidebarOpen ? 'w-64' : 'w-0'} bg-gray-100 border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out overflow-hidden flex-shrink-0 relative`}>
+                        <div className="p-4 flex gap-2">
+                            <button onClick={createNew} className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors"><Icons.Plus /> {t.newOutline}</button>
+                            <button onClick={handleImportClick} className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors"><Icons.Upload /> {t.import}</button>
+                            <input type="file" ref={importInputRef} className="hidden" accept=".md,.txt" onChange={handleFileImport}/>
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-2 pb-4">
+                            <div className="text-xs font-semibold text-gray-400 px-3 mb-2 mt-2 uppercase tracking-wider">{t.recent}</div>
+                            {sortedOutlines.map(o => <SidebarItem key={o.id} outline={o} isActive={o.id === activeId} onClick={() => switchOutline(o.id)} onRename={updateMeta} onDelete={remove} onPin={(id) => updateMeta(id, {isPinned: !o.isPinned})} onExport={handleExport} t={t} />)}
+                        </div>
+                        <div className="p-4 border-t border-gray-200">
+                            <div className="relative" ref={settingsRef}>
+                                <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} className="w-full flex items-center gap-2 px-3 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition-colors text-sm"><Icons.Settings /> {t.settings}</button>
+                                {isSettingsOpen && <div className="absolute bottom-full left-0 mb-2 w-full bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden"><button onClick={toggleLanguage} className="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between"><span>{t.language}</span><span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{t.switchLangLabel}</span></button></div>}
+                            </div>
+                        </div>
+                    </aside>
+
+                    <main className="flex-1 flex flex-col h-full min-w-0 relative bg-white">
+                        <header className="h-14 border-b border-gray-100 flex items-center justify-between px-4 bg-white shrink-0">
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-md transition-colors"><Icons.Sidebar /></button>
+                                <h1 className="font-bold text-lg text-gray-700 truncate max-w-md">{activeOutline.title}</h1>
+                            </div>
+                            <div className="flex items-center gap-2"><span className="text-xs text-gray-400 hidden sm:inline mr-2">{items.length} {t.nodes}</span><button onClick={handleClipboard} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-medium rounded-full transition-colors text-xs"><Icons.Copy /> {t.copy}</button></div>
+                        </header>
+                        <div className="flex-1 flex overflow-hidden relative">
+                            <div className="w-12 bg-gray-50 border-r border-gray-100 flex-shrink-0 flex flex-col items-center pt-8 pb-32 overflow-hidden select-none text-gray-300 font-mono text-xs">
+                                {items.map((_, i) => <div key={i} className="h-auto mb-2 py-3 flex items-start justify-center w-full" style={{minHeight: '44px'}}>{i + 1}</div>)}
+                            </div>
+                            <div id="editor-scroller" className="flex-1 overflow-y-auto overflow-x-hidden p-6 pb-32 scroll-smooth bg-white">
+                                <div className="max-w-4xl mx-auto min-h-[60vh]">
+                                    {items.map((item, index) => (
+                                        <Block key={item.id} index={index} item={item} onUpdate={updateItem} onDelete={deleteItem} onAddAfter={addAfter} onDragStart={handleDragStart} onDragEnter={handleDragEnter} onDragEnd={handleDragEnd} onIndent={indent} isDragging={draggingItemIndex === index} t={t} />
+                                    ))}
+                                    <div className="mt-6 flex gap-3">
+                                        <button onClick={addItem} className="flex-1 py-3 border border-dashed border-gray-200 rounded-lg text-gray-400 hover:border-blue-400 hover:text-blue-500 hover:bg-blue-50/50 transition-all flex items-center justify-center gap-2 text-sm"><Icons.Plus /> {t.addBlockBottom}</button>
+                                        <button onClick={() => setBatchModalOpen(true)} className="px-6 py-3 border border-dashed border-gray-200 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 transition-all flex items-center justify-center gap-2 text-sm whitespace-nowrap" title="粘贴多行文本批量导入"><Icons.Paste /> {t.batchAdd}</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
