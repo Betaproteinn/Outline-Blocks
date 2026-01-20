@@ -1,3 +1,8 @@
+![Version](https://img.shields.io/badge/version-1.1-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Status](https://img.shields.io/badge/status-experimental-lightgrey)
+
+
 # Outline Blocks
 
 Outline Blocks is a block-based outlining tool designed for structured thinking and long-form writing.
