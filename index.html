@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Outline Blocks v1</title>
+    <title>小说大纲积木构思板</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & ReactDOM -->
@@ -75,38 +75,23 @@
             }
         };
 
-        /** 解析单行文本 */
         const parseLine = (line) => {
             if (!line.trim()) return null;
-            let depth = 0;
-            let content = line;
-            let explicitIndex = -1; 
-            let isNumbered = false;
-
+            let depth = 0; let content = line; let explicitIndex = -1; let isNumbered = false;
             const matchWithNumber = line.match(/^\s*(\d+)[.、\s]+\s*(\t*)(.*)$/);
             if (matchWithNumber) {
                 const num = parseInt(matchWithNumber[1], 10);
-                explicitIndex = num - 1; 
-                depth = matchWithNumber[2].length;
-                content = matchWithNumber[3];
-                isNumbered = true;
+                explicitIndex = num - 1; depth = matchWithNumber[2].length; content = matchWithNumber[3]; isNumbered = true;
             } else {
                 const matchIndent = line.match(/^(\t+)(.*)$/);
-                if (matchIndent) {
-                    depth = matchIndent[1].length;
-                    content = matchIndent[2];
-                } else {
-                    content = line.trim();
-                }
+                if (matchIndent) { depth = matchIndent[1].length; content = matchIndent[2]; } else { content = line.trim(); }
             }
             return { content, depth: Math.min(depth, 8), explicitIndex, isNumbered };
         };
 
-        /** 将文本解析为映射表 (Index -> Content) */
         const parseTextToMap = (inputLines, currentLength) => {
             const map = new Map();
-            let cursor = currentLength - 1; 
-
+            let cursor = currentLength - 1;
             inputLines.forEach(line => {
                 const parsed = parseLine(line);
                 if (!parsed) return;
@@ -116,7 +101,6 @@
             return map;
         };
 
-        /** 简单解析为列表 (用于文件导入) */
         const parseTextToList = (inputLines) => {
             return inputLines.map(line => {
                 const parsed = parseLine(line);
@@ -129,6 +113,23 @@
         // 2. CUSTOM HOOKS (自定义逻辑钩子)
         // ==========================================
 
+        /** Hook: 点击外部关闭 */
+        function useOnClickOutside(ref, handler) {
+            useEffect(() => {
+                const listener = (event) => {
+                    if (!ref.current || ref.current.contains(event.target)) return;
+                    handler(event);
+                };
+                document.addEventListener("mousedown", listener);
+                document.addEventListener("touchstart", listener);
+                return () => { 
+                    document.removeEventListener("mousedown", listener); 
+                    document.removeEventListener("touchstart", listener); 
+                };
+            }, [ref, handler]);
+        }
+
+        /** Hook: 管理多语言 */
         const useLanguage = () => {
             const [lang, setLang] = useState(() => localStorage.getItem('novel-app-language') || 'zh');
             useEffect(() => { localStorage.setItem('novel-app-language', lang); }, [lang]);
@@ -136,6 +137,7 @@
             return { language: lang, t: TRANSLATIONS[lang], toggleLanguage: toggle };
         };
 
+        /** Hook: 管理大纲数据 */
         const useOutlines = (t) => {
             const [state, setState] = useState(() => {
                 const saved = localStorage.getItem('novel-app-state');
@@ -143,7 +145,7 @@
                 const oldData = localStorage.getItem('novel-outline-data');
                 let initial = [];
                 if (oldData) { try { initial.push({ id: 'default-old', title: '未命名大纲 (已恢复)', isPinned: false, lastModified: Date.now(), data: JSON.parse(oldData) }); } catch(e) {} }
-                if (initial.length === 0) { initial.push({ id: 'init-1', title: t.newIdea, isPinned: false, lastModified: Date.now(), data: [{ id: '1', content: '', depth: 0 }] }); }
+                if (initial.length === 0) { initial.push({ id: 'init-1', title: t.newIdea, isPinned: false, lastModified: Date.now(), data: [{ id: generateId(), content: '', depth: 0 }] }); }
                 return { activeId: initial[0].id, outlines: initial };
             });
 
@@ -157,7 +159,7 @@
 
             const createNew = () => {
                 const newId = generateId();
-                const newOutline = { id: newId, title: `${t.newIdea} ${new Date().toLocaleDateString()}`, isPinned: false, lastModified: Date.now(), data: [{ id: '1', content: '', depth: 0 }] };
+                const newOutline = { id: newId, title: `${t.newIdea} ${new Date().toLocaleDateString()}`, isPinned: false, lastModified: Date.now(), data: [{ id: generateId(), content: '', depth: 0 }] };
                 setState(prev => ({ outlines: [newOutline, ...prev.outlines], activeId: newId }));
             };
 
@@ -219,18 +221,6 @@
         // 4. COMPONENTS (UI 组件)
         // ==========================================
 
-        function useOnClickOutside(ref, handler) {
-            useEffect(() => {
-                const listener = (event) => {
-                    if (!ref.current || ref.current.contains(event.target)) return;
-                    handler(event);
-                };
-                document.addEventListener("mousedown", listener);
-                document.addEventListener("touchstart", listener);
-                return () => { document.removeEventListener("mousedown", listener); document.removeEventListener("touchstart", listener); };
-            }, [ref, handler]);
-        }
-
         const BatchModal = ({ isOpen, onClose, onConfirmMerge, t, currentItems }) => {
             const [text, setText] = useState('');
             const [mode, setMode] = useState('input');
@@ -249,10 +239,7 @@
                     const changes = lines.map((line, idx) => {
                         if (!line.trim()) return null;
                         const parsed = parseLine(line);
-                        return {
-                            id: generateId(), type: 'new', explicitIndex: currentItems.length + idx,
-                            depth: parsed.depth, newContent: parsed.content, oldContent: '', shouldOverwrite: false
-                        };
+                        return { id: generateId(), type: 'new', explicitIndex: currentItems.length + idx, depth: parsed.depth, newContent: parsed.content, oldContent: '', shouldOverwrite: false };
                     }).filter(Boolean);
                     setAnalysis(changes); setMode('review'); return;
                 }
@@ -275,26 +262,14 @@
                 for (let i = 0; i <= endBoundary; i++) {
                     const incoming = importMap.get(i);
                     const existing = currentItems[i];
-
                     if (incoming) {
                         const type = existing ? 'conflict' : 'new';
-                        changes.push({
-                            id: i, type, explicitIndex: i, depth: incoming.depth,
-                            newContent: incoming.content, oldContent: existing ? existing.content : '',
-                            shouldOverwrite: type === 'conflict'
-                        });
+                        changes.push({ id: i, type, explicitIndex: i, depth: incoming.depth, newContent: incoming.content, oldContent: existing ? existing.content : '', shouldOverwrite: type === 'conflict' });
                     } else if (!existing && i < maxImportIndex) {
-                        changes.push({
-                            id: i, type: 'filler', explicitIndex: i, depth: 0,
-                            newContent: "(Empty Block)", oldContent: '', shouldOverwrite: false
-                        });
+                        changes.push({ id: i, type: 'filler', explicitIndex: i, depth: 0, newContent: "(Empty Block)", oldContent: '', shouldOverwrite: false });
                     }
                 }
                 setAnalysis(changes); setMode('review');
-            };
-
-            const toggleOverwrite = (changeId) => {
-                setAnalysis(prev => prev.map(c => c.id === changeId ? { ...c, shouldOverwrite: !c.shouldOverwrite } : c));
             };
 
             if (!isOpen) return null;
@@ -303,27 +278,20 @@
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20 backdrop-blur-sm">
                     <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col max-h-[85vh] animate-fade-in-up">
                         <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
-                            <h3 className="font-bold text-gray-700">
-                                {mode === 'input' ? t.batchModalTitle : (mode === 'warning' ? t.warningTitle : t.confirmImport)}
-                            </h3>
+                            <h3 className="font-bold text-gray-700">{mode === 'input' ? t.batchModalTitle : (mode === 'warning' ? t.warningTitle : t.confirmImport)}</h3>
                             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                         </div>
-
                         {mode === 'input' && (
                             <div className="p-4 flex-1 flex flex-col min-h-[300px]">
                                 <p className="text-sm text-gray-500 mb-2">{t.batchModalDesc}</p>
                                 <textarea value={text} onChange={(e) => setText(e.target.value)} className="w-full flex-1 border border-gray-300 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono" placeholder={t.batchModalPlaceholder} />
                             </div>
                         )}
-
                         {mode === 'warning' && (
                             <div className="p-8 flex flex-col items-center justify-center text-center">
                                 <Icons.Warning />
                                 <h4 className="text-xl font-bold text-gray-800 mb-2">{t.warningTitle}</h4>
-                                <p className="text-gray-600 mb-6 max-w-md">
-                                    {t.warningDesc.replace('{0}', warningData.fillerCount).replace('{1}', warningData.maxLine)}
-                                    <br/><br/>{t.warningQuestion}
-                                </p>
+                                <p className="text-gray-600 mb-6 max-w-md">{t.warningDesc.replace('{0}', warningData.fillerCount).replace('{1}', warningData.maxLine)}<br/><br/>{t.warningQuestion}</p>
                                 <div className="flex gap-4">
                                     <button onClick={() => analyzeText(true)} className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium">{t.actionAsText}</button>
                                     <button onClick={() => { 
@@ -344,41 +312,26 @@
                                 </div>
                             </div>
                         )}
-
                         {mode === 'review' && (
                             <div className="flex-1 overflow-y-auto p-0 bg-gray-50/50">
                                 <table className="w-full text-sm text-left border-collapse">
                                     <thead className="bg-gray-100 text-gray-600 sticky top-0 shadow-sm z-10">
-                                        <tr>
-                                            <th className="p-3 font-medium w-16 text-center">#</th>
-                                            <th className="p-3 font-medium">{t.diffOriginal}</th>
-                                            <th className="p-3 font-medium w-8"></th>
-                                            <th className="p-3 font-medium">{t.diffIncoming}</th>
-                                            <th className="p-3 font-medium w-24 text-center">{t.diffAction}</th>
-                                        </tr>
+                                        <tr><th className="p-3 font-medium w-16 text-center">#</th><th className="p-3 font-medium">{t.diffOriginal}</th><th className="p-3 font-medium w-8"></th><th className="p-3 font-medium">{t.diffIncoming}</th><th className="p-3 font-medium w-24 text-center">{t.diffAction}</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100 bg-white">
                                         {analysis.map((change) => (
                                             <tr key={change.id} className={change.type === 'conflict' ? 'bg-red-50/30' : (change.type === 'filler' ? 'bg-gray-50' : 'bg-green-50/30')}>
                                                 <td className="p-3 text-center text-gray-400 font-mono">{change.explicitIndex + 1}</td>
-                                                <td className="p-3 text-gray-500 truncate max-w-[150px]">
-                                                    {change.type === 'conflict' ? <span className="diff-old">{change.oldContent || '(empty)'}</span> : <span className="text-gray-300">-</span>}
-                                                </td>
+                                                <td className="p-3 text-gray-500 truncate max-w-[150px]">{change.type === 'conflict' ? <span className="diff-old">{change.oldContent || '(empty)'}</span> : <span className="text-gray-300">-</span>}</td>
                                                 <td className="p-3 text-gray-400 text-center"><Icons.ArrowRight /></td>
                                                 <td className="p-3 font-medium text-gray-800">
-                                                    <div style={{ paddingLeft: `${change.depth * 10}px` }}>
-                                                        {change.type === 'conflict' ? (
-                                                            <span className={change.shouldOverwrite ? 'diff-new' : 'text-gray-400 decoration-line-through'}>{change.newContent}</span>
-                                                        ) : change.type === 'filler' ? <span className="diff-filler">Auto-fill</span> : <span className="text-green-600">{change.newContent}</span>}
-                                                    </div>
+                                                    <div style={{ paddingLeft: `${change.depth * 10}px` }}>{change.type === 'conflict' ? (<span className={change.shouldOverwrite ? 'diff-new' : 'text-gray-400 decoration-line-through'}>{change.newContent}</span>) : change.type === 'filler' ? <span className="diff-filler">Auto-fill</span> : <span className="text-green-600">{change.newContent}</span>}</div>
                                                 </td>
                                                 <td className="p-3 text-center">
-                                                    {change.type === 'conflict' ? (
-                                                        <label className="inline-flex items-center cursor-pointer">
-                                                            <input type="checkbox" checked={change.shouldOverwrite} onChange={() => toggleOverwrite(change.id)} className="sr-only peer" />
-                                                            <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
-                                                        </label>
-                                                    ) : change.type === 'filler' ? <span className="text-xs text-gray-400">{t.diffFiller}</span> : <span className="text-xs text-green-500 border border-green-200 bg-green-50 px-2 py-1 rounded">{t.diffAppend}</span>}
+                                                    {change.type === 'conflict' ? (<label className="inline-flex items-center cursor-pointer">
+                                                        <input type="checkbox" checked={change.shouldOverwrite} onChange={() => setAnalysis(prev => prev.map(c => c.id === change.id ? { ...c, shouldOverwrite: !c.shouldOverwrite } : c))} className="sr-only peer" />
+                                                        <div className="relative w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
+                                                    </label>) : change.type === 'filler' ? <span className="text-xs text-gray-400">{t.diffFiller}</span> : <span className="text-xs text-green-500 border border-green-200 bg-green-50 px-2 py-1 rounded">{t.diffAppend}</span>}
                                                 </td>
                                             </tr>
                                         ))}
@@ -386,21 +339,10 @@
                                 </table>
                             </div>
                         )}
-
                         <div className="p-4 border-t border-gray-100 flex justify-end gap-2 bg-gray-50 rounded-b-xl">
-                            {mode === 'input' ? (
-                                <>
-                                    <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">{t.cancel}</button>
-                                    <button onClick={() => analyzeText(false)} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium">{t.analyze}</button>
-                                </>
-                            ) : mode === 'warning' ? (
-                                <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">{t.cancel}</button>
-                            ) : (
-                                <>
-                                    <button onClick={() => setMode('input')} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">{t.backToEdit}</button>
-                                    <button onClick={() => { onConfirmMerge(analysis); onClose(); }} className="px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg text-sm font-medium">{t.confirmImport}</button>
-                                </>
-                            )}
+                            {mode === 'input' ? (<><button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">{t.cancel}</button><button onClick={() => analyzeText(false)} className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg text-sm font-medium">{t.analyze}</button></>) 
+                            : mode === 'warning' ? (<button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">{t.cancel}</button>) 
+                            : (<><button onClick={() => setMode('input')} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm">{t.backToEdit}</button><button onClick={() => { onConfirmMerge(analysis); onClose(); }} className="px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg text-sm font-medium">{t.confirmImport}</button></>)}
                         </div>
                     </div>
                 </div>
@@ -416,26 +358,26 @@
 
             useOnClickOutside(menuRef, () => setIsMenuOpen(false));
 
-            useEffect(() => {
-                if (isRenaming && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
-            }, [isRenaming]);
+            useEffect(() => { setEditTitle(outline.title); }, [outline.title]);
+            useEffect(() => { if (isRenaming && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); } }, [isRenaming]);
 
             const handleRenameSubmit = () => {
-                onRename(outline.id, editTitle.trim() || outline.title);
+                const finalTitle = editTitle.trim();
+                if (finalTitle && finalTitle !== outline.title) { onRename(outline.id, { title: finalTitle }); }
                 setIsRenaming(false);
             };
 
             return (
                 <div onClick={onClick} className={`group relative flex items-center gap-2 px-3 py-2.5 mx-2 rounded-lg cursor-pointer text-sm transition-colors ${isActive ? 'bg-white shadow-sm text-gray-800 font-medium' : 'text-gray-600 hover:bg-gray-200/50'}`}>
                     <div className="text-gray-400 shrink-0">{outline.isPinned ? <Icons.Pin filled={true} /> : <div className="w-3.5 h-3.5 bg-gray-300 rounded-sm opacity-50"></div>}</div>
-                    <div className="flex-1 truncate" onDoubleClick={() => setIsRenaming(true)}>
-                        {isRenaming ? <input ref={inputRef} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} onBlur={handleRenameSubmit} onKeyDown={(e) => e.key === 'Enter' && handleRenameSubmit()} onClick={(e) => e.stopPropagation()} className="w-full bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:outline-none"/> : <span>{outline.title}</span>}
+                    <div className="flex-1 truncate" onDoubleClick={(e) => { e.stopPropagation(); setIsRenaming(true); }}>
+                        {isRenaming ? (<input ref={inputRef} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} onBlur={handleRenameSubmit} onKeyDown={(e) => { if(e.key === 'Enter') handleRenameSubmit(); if(e.key === 'Escape') { setEditTitle(outline.title); setIsRenaming(false); } }} onClick={(e) => e.stopPropagation()} className="w-full bg-white border border-blue-400 rounded px-1 py-0.5 text-xs focus:outline-none"/>) : (<span>{outline.title}</span>)}
                     </div>
                     <div className="relative shrink-0" ref={menuRef}>
                         <button onClick={(e) => { e.stopPropagation(); setIsMenuOpen(!isMenuOpen); }} className={`p-1 rounded-md hover:bg-gray-300 text-gray-400 hover:text-gray-600 ${isMenuOpen || isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}><Icons.Menu /></button>
                         {isMenuOpen && (
                             <div className="absolute right-0 top-6 w-32 bg-white border border-gray-200 rounded-lg shadow-xl z-50 py-1 overflow-hidden">
-                                <button onClick={(e) => { e.stopPropagation(); onPin(outline.id); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-600 flex items-center gap-2"><Icons.Pin /> {outline.isPinned ? t.unpin : t.pin}</button>
+                                <button onClick={(e) => { e.stopPropagation(); onPin(outline.id, { isPinned: !outline.isPinned }); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-600 flex items-center gap-2"><Icons.Pin /> {outline.isPinned ? t.unpin : t.pin}</button>
                                 <button onClick={(e) => { e.stopPropagation(); onExport(outline.id); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-green-50 hover:text-green-600 flex items-center gap-2"><Icons.Download /> {t.export}</button>
                                 <div className="h-px bg-gray-100 my-0.5"></div>
                                 <button onClick={(e) => { e.stopPropagation(); onDelete(outline.id); setIsMenuOpen(false); }} className="w-full text-left px-3 py-2 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2"><Icons.Trash /> {t.delete}</button>
@@ -449,16 +391,13 @@
         const Block = ({ item, index, onUpdate, onDelete, onAddAfter, onDragStart, onDragEnter, onDragEnd, onIndent, isDragging, t }) => {
             const textareaRef = useRef(null);
             useEffect(() => { if (textareaRef.current) { textareaRef.current.style.height = 'auto'; textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px'; } }, [item.content]);
-
             const handleKeyDown = (e) => {
                 if (e.key === 'Tab') { e.preventDefault(); onIndent(index, e.shiftKey ? -1 : 1); }
                 if (e.key === 'Backspace' && item.content === '') { e.preventDefault(); onDelete(item.id); }
                 if (e.key === 'Enter' && (e.altKey || e.metaKey)) { e.preventDefault(); onAddAfter(index); }
             };
-
             const colors = ['border-blue-400', 'border-teal-400', 'border-purple-400', 'border-pink-400', 'border-orange-400'];
             const styleProps = { marginLeft: `${item.depth * 2.5}rem`, borderColorClass: item.depth > 0 ? colors[item.depth % colors.length] : 'border-gray-300' };
-
             return (
                 <div className={`flex items-start group mb-2 block-transition ${isDragging ? 'opacity-40' : 'opacity-100'}`} style={{ marginLeft: styleProps.marginLeft }} onDragEnter={(e) => onDragEnter(e, index)} onDragOver={(e) => e.preventDefault()}>
                     {item.depth > 0 && <div className="absolute -left-4 top-1/2 w-4 h-px bg-gray-300 pointer-events-none"></div>}
@@ -482,13 +421,11 @@
         const App = () => {
             const { language, t, toggleLanguage } = useLanguage();
             const { activeOutline, sortedOutlines, activeId, createNew, importOutline, remove, updateActiveItems, updateMeta, switchOutline } = useOutlines(t);
-            
             const [isSidebarOpen, setSidebarOpen] = useState(true);
             const [isBatchModalOpen, setBatchModalOpen] = useState(false);
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
             const [draggingItemIndex, setDraggingItemIndex] = useState(null);
             
-            // Refs
             const settingsRef = useRef();
             const importInputRef = useRef(null);
             const dragItem = useRef();
@@ -496,9 +433,7 @@
             
             useOnClickOutside(settingsRef, () => setIsSettingsOpen(false));
 
-            // --- Handlers ---
             const handleImportClick = () => importInputRef.current.click();
-
             const handleFileImport = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -512,20 +447,16 @@
                         const line = lines[i].trim();
                         if (line.startsWith('[') && line.endsWith(']')) { title = line.slice(1, -1); startIndex = i+1; break; }
                     }
-                    const newItems = parseTextToList(lines.slice(startIndex));
-                    const data = newItems.length ? newItems : [{id:generateId(), content: t.emptyImport, depth:0}];
-                    importOutline(title, data);
+                    const data = parseTextToList(lines.slice(startIndex));
+                    importOutline(title, data.length ? data : [{id:generateId(), content: t.emptyImport, depth:0}]);
                 };
-                reader.readAsText(file);
-                e.target.value = '';
+                reader.readAsText(file); e.target.value = '';
             };
 
-            // --- Drag & Drop ---
-            const items = activeOutline.data;
             const handleDragStart = (e, pos) => { dragItem.current = pos; setDraggingItemIndex(pos); };
             const handleDragEnter = (e, pos) => { 
                 dragOverItem.current = pos; 
-                const newList = [...items];
+                const newList = [...activeOutline.data];
                 const draggedItem = newList[dragItem.current];
                 if (dragItem.current !== pos && draggedItem) {
                     newList.splice(dragItem.current, 1);
@@ -537,47 +468,26 @@
             };
             const handleDragEnd = () => { dragItem.current = null; setDraggingItemIndex(null); };
 
-            // --- Block Operations ---
-            const addItem = () => {
-                updateActiveItems([...items, { id: generateId(), content: '', depth: 0 }]);
-                setTimeout(() => document.getElementById('editor-scroller')?.scrollTo({ top: 99999, behavior: 'smooth' }), 100);
-            };
+            const addItem = () => { updateActiveItems([...activeOutline.data, { id: generateId(), content: '', depth: 0 }]); setTimeout(() => document.getElementById('editor-scroller')?.scrollTo({ top: 99999, behavior: 'smooth' }), 100); };
             const updateItem = (id, txt) => updateActiveItems(prev => prev.map(i => i.id === id ? { ...i, content: txt } : i));
-            const deleteItem = (id) => {
-                if (items.length <= 1 && !items[0].content) return;
-                updateActiveItems(prev => prev.filter(i => i.id !== id));
-            };
-            const addAfter = (idx) => {
-                const newList = [...items];
-                newList.splice(idx + 1, 0, { id: generateId(), content: '', depth: items[idx].depth });
-                updateActiveItems(newList);
-            };
-            const indent = (idx, dir) => {
-                const newList = [...items];
-                newList[idx].depth = Math.max(0, Math.min(8, newList[idx].depth + dir));
-                updateActiveItems(newList);
-            };
+            const deleteItem = (id) => { if (activeOutline.data.length <= 1 && !activeOutline.data[0].content) return; updateActiveItems(prev => prev.filter(i => i.id !== id)); };
+            const addAfter = (idx) => { const newList = [...activeOutline.data]; newList.splice(idx + 1, 0, { id: generateId(), content: '', depth: activeOutline.data[idx].depth }); updateActiveItems(newList); };
+            const indent = (idx, dir) => { const newList = [...activeOutline.data]; newList[idx].depth = Math.max(0, Math.min(8, newList[idx].depth + dir)); updateActiveItems(newList); };
 
-            // --- Batch Merge ---
             const handleMerge = (analysis) => {
-                let maxIdx = items.length - 1;
+                let maxIdx = activeOutline.data.length - 1;
                 analysis.forEach(c => { if (c.explicitIndex > maxIdx) maxIdx = c.explicitIndex; });
-                
-                const newItems = [...items];
+                const newItems = [...activeOutline.data];
                 while (newItems.length <= maxIdx) newItems.push({ id: generateId(), content: '', depth: 0 });
-
                 analysis.forEach(change => {
                     const target = change.explicitIndex;
                     if (change.type === 'conflict' && !change.shouldOverwrite) return;
-                    
                     const content = change.newContent === "(Empty Block)" ? "" : change.newContent;
-                    newItems[target] = { ...newItems[target], content, depth: change.depth || 0, id: newItems[target].id || generateId() };
+                    newItems[target] = { id: newItems[target].id || generateId(), content, depth: change.depth || 0 };
                 });
                 updateActiveItems(newItems);
-                setTimeout(() => document.getElementById('editor-scroller')?.scrollTo({ top: 99999, behavior: 'smooth' }), 100);
             };
 
-            // --- Export ---
             const handleExport = (id) => {
                 const out = sortedOutlines.find(o => o.id === id);
                 if (!out) return;
@@ -588,14 +498,13 @@
             };
             
             const handleClipboard = () => {
-                const txt = items.map((i, idx) => `${idx + 1} ${'\t'.repeat(i.depth)}${i.content}`).join('\n');
+                const txt = activeOutline.data.map((i, idx) => `${idx + 1} ${'\t'.repeat(i.depth)}${i.content}`).join('\n');
                 navigator.clipboard.writeText(txt).then(() => alert(t.copySuccess));
             };
 
             return (
                 <div className="flex h-screen w-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
-                    <BatchModal isOpen={isBatchModalOpen} onClose={() => setBatchModalOpen(false)} onConfirmMerge={handleMerge} t={t} currentItems={items} />
-                    
+                    <BatchModal isOpen={isBatchModalOpen} onClose={() => setBatchModalOpen(false)} onConfirmMerge={handleMerge} t={t} currentItems={activeOutline.data} />
                     <aside className={`${isSidebarOpen ? 'w-64' : 'w-0'} bg-gray-100 border-r border-gray-200 flex flex-col transition-all duration-300 ease-in-out overflow-hidden flex-shrink-0 relative`}>
                         <div className="p-4 flex gap-2">
                             <button onClick={createNew} className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors"><Icons.Plus /> {t.newOutline}</button>
@@ -604,7 +513,7 @@
                         </div>
                         <div className="flex-1 overflow-y-auto px-2 pb-4">
                             <div className="text-xs font-semibold text-gray-400 px-3 mb-2 mt-2 uppercase tracking-wider">{t.recent}</div>
-                            {sortedOutlines.map(o => <SidebarItem key={o.id} outline={o} isActive={o.id === activeId} onClick={() => switchOutline(o.id)} onRename={updateMeta} onDelete={remove} onPin={(id) => updateMeta(id, {isPinned: !o.isPinned})} onExport={handleExport} t={t} />)}
+                            {sortedOutlines.map(o => <SidebarItem key={o.id} outline={o} isActive={o.id === activeId} onClick={() => switchOutline(o.id)} onRename={updateMeta} onDelete={remove} onPin={updateMeta} onExport={handleExport} t={t} />)}
                         </div>
                         <div className="p-4 border-t border-gray-200">
                             <div className="relative" ref={settingsRef}>
@@ -613,22 +522,21 @@
                             </div>
                         </div>
                     </aside>
-
                     <main className="flex-1 flex flex-col h-full min-w-0 relative bg-white">
                         <header className="h-14 border-b border-gray-100 flex items-center justify-between px-4 bg-white shrink-0">
                             <div className="flex items-center gap-3">
                                 <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-md transition-colors"><Icons.Sidebar /></button>
                                 <h1 className="font-bold text-lg text-gray-700 truncate max-w-md">{activeOutline.title}</h1>
                             </div>
-                            <div className="flex items-center gap-2"><span className="text-xs text-gray-400 hidden sm:inline mr-2">{items.length} {t.nodes}</span><button onClick={handleClipboard} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-medium rounded-full transition-colors text-xs"><Icons.Copy /> {t.copy}</button></div>
+                            <div className="flex items-center gap-2"><span className="text-xs text-gray-400 hidden sm:inline mr-2">{activeOutline.data.length} {t.nodes}</span><button onClick={handleClipboard} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 font-medium rounded-full transition-colors text-xs"><Icons.Copy /> {t.copy}</button></div>
                         </header>
                         <div className="flex-1 flex overflow-hidden relative">
                             <div className="w-12 bg-gray-50 border-r border-gray-100 flex-shrink-0 flex flex-col items-center pt-8 pb-32 overflow-hidden select-none text-gray-300 font-mono text-xs">
-                                {items.map((_, i) => <div key={i} className="h-auto mb-2 py-3 flex items-start justify-center w-full" style={{minHeight: '44px'}}>{i + 1}</div>)}
+                                {activeOutline.data.map((_, i) => <div key={i} className="h-auto mb-2 py-3 flex items-start justify-center w-full" style={{minHeight: '44px'}}>{i + 1}</div>)}
                             </div>
                             <div id="editor-scroller" className="flex-1 overflow-y-auto overflow-x-hidden p-6 pb-32 scroll-smooth bg-white">
                                 <div className="max-w-4xl mx-auto min-h-[60vh]">
-                                    {items.map((item, index) => (
+                                    {activeOutline.data.map((item, index) => (
                                         <Block key={item.id} index={index} item={item} onUpdate={updateItem} onDelete={deleteItem} onAddAfter={addAfter} onDragStart={handleDragStart} onDragEnter={handleDragEnter} onDragEnd={handleDragEnd} onIndent={indent} isDragging={draggingItemIndex === index} t={t} />
                                     ))}
                                     <div className="mt-6 flex gap-3">
