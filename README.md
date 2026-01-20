@@ -39,29 +39,30 @@ Every overwrite, insertion, or filler block is visible and controllable.
 
 ---
 
-## Screenshots
+## How It Works
+
+### Block-Based Outline Editor
+Create, reorder, and structure ideas using hierarchical blocks.  
+Blocks can be freely dragged, indented, and reorganized as the outline evolves.
+
+<img src="screenshots/Main Editor.jpg" width="800" />
+
+---
 
 ### Smart Batch Import (Forced Alignment)
 Paste numbered or unordered text.  
-The system maps lines to exact positions, automatically sorting and filling gaps.
+The system maps lines to exact positions, sorts unordered entries, and can auto-fill gaps.
 
-![Smart Batch Import](./screenshots/batch-import.png)
+<img src="screenshots/batch-import.jpg" width="800" />
 
 ---
 
 ### Merge Review & Conflict Resolution
-Before applying changes, all conflicts are presented explicitly.
-Each block can be kept, overwritten, or appended.
+All changes are reviewed explicitly before being applied.  
+Each conflict can be kept, overwritten, or appended.
 
-![Confirm Merge](.merge-review.jpg)
+<img src="screenshots/merge-review.jpg" width="500" />
 
----
-
-### Block-Based Outline Editor
-Drag, indent, and reorganize blocks freely.
-Outlines remain readable and editable even as they grow.
-
-![Main Editor](./screenshots/editor.png)
 
 ---
 
